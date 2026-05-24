@@ -45,9 +45,16 @@ if not exist "out\main\index.js" (
     )
 )
 
-REM 4. Launch
-echo Launching Abu Salah Pro...
-start "" /B npx electron out\main\index.js
+REM 4. Launch the real electron.exe directly so the app keeps running
+REM    after this window closes (npx would spawn a shim that dies with it)
+set "ELECTRON_EXE=%~dp0node_modules\electron\dist\electron.exe"
+if not exist "%ELECTRON_EXE%" (
+    echo [ERROR] Electron binary not found. Delete node_modules\.installed and re-run.
+    pause
+    exit /b 1
+)
+echo Launching Abu Salah...
+start "Abu Salah" "%ELECTRON_EXE%" "%~dp0out\main\index.js"
 
 REM Give the window a moment to appear
 ping -n 2 127.0.0.1 >nul

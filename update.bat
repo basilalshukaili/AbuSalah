@@ -68,10 +68,17 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM 6. Launch
+REM 6. Launch the real electron.exe directly so the app keeps running
+REM    after this window closes (npx would spawn a shim that dies with it)
+set "ELECTRON_EXE=%~dp0node_modules\electron\dist\electron.exe"
+if not exist "%ELECTRON_EXE%" (
+    echo [ERROR] Electron binary not found after install.
+    pause
+    exit /b 1
+)
 echo.
 echo Update complete. Launching Abu Salah...
-start "" /B npx electron out\main\index.js
+start "Abu Salah" "%ELECTRON_EXE%" "%~dp0out\main\index.js"
 
 REM Give the window a moment to appear
 ping -n 2 127.0.0.1 >nul

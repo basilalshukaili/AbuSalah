@@ -70,31 +70,35 @@ npm run dev        # launch the app with hot reload
 | `npm run typecheck` | TypeScript check (web + node configs) |
 | `npm run lint` / `npm run format` | ESLint / Prettier |
 
-## Building the installer
+## Deploying to a client
 
-```bash
-npm run build:win
-```
+The app runs **from source** — no installer required.
 
-Produces **`release/AbuSalah-Setup-2.0.0.exe`** (NSIS, x64). The installer bundles
-Electron, so the client machine needs nothing pre‑installed.
+**First install (once per client PC):**
 
-> **Notes**
-> - The first build downloads Electron + NSIS binaries (needs internet once) and a few
->   **GB of free disk space** for temporary packaging files.
-> - The installer is **unsigned**, so Windows SmartScreen shows "Windows protected your
->   PC" → click **More info → Run anyway**. Removing this requires a paid code‑signing
->   certificate.
+1. Install **Node.js 20+** (<https://nodejs.org>) and **Git** (<https://git-scm.com>).
+2. Clone the repository (e.g. onto the Desktop):
+   ```bash
+   git clone https://github.com/basilalshukaili/AbuSalah.git
+   ```
+3. Open the `AbuSalah` folder and double‑click **`start.bat`**.
+   The first run installs dependencies and builds the app (a few minutes, needs
+   internet once), then launches it. Every later launch is instant.
 
-## Shipping to a client
+**Updating to the latest version:**
 
-**Option A — Installer (recommended).** Run `npm run build:win`, copy
-`release/AbuSalah-Setup-2.0.0.exe` to the client, and run it. It installs the app and
-creates Desktop + Start‑Menu shortcuts. **No Node.js needed on the client.**
+- Double‑click **`update.bat`**. It downloads the newest code (`git fetch` +
+  `git reset --hard origin/main`), refreshes dependencies, rebuilds, and relaunches.
 
-**Option B — Folder + `start.bat`.** Copy the project folder to the client, install
-Node.js 20+, then double‑click **`start.bat`** (first run installs dependencies, builds,
-and launches). Use this when an installer build isn't available.
+> The shop's data (database + automatic backups) lives under `%APPDATA%\Abu Salah`,
+> **outside** the project folder — so updating the code never touches it.
+
+### Optional: standalone installer
+
+For a no‑Node install, `npm run build:win` packages an NSIS `.exe` into `release/`.
+It needs a few GB of free disk space and produces an unsigned installer (SmartScreen
+will warn → **More info → Run anyway**). The clone + `start.bat` flow above is the
+recommended path.
 
 ## Data & backups
 

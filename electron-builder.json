@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.abusalah.billing",
+  "productName": "Abu Salah",
+  "copyright": "Abu Salah Projects",
+  "directories": {
+    "output": "release",
+    "buildResources": "resources"
+  },
+  "files": [
+    "out/**/*",
+    "node_modules/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "resources",
+      "to": "."
+    }
+  ],
+  "asar": true,
+  "asarUnpack": [
+    "**/*.node"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "resources/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Abu Salah",
+    "artifactName": "AbuSalah-Setup-${version}.${ext}"
+  }
+}

@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build / packaging output
+out/
+dist/
+release/
+*.tsbuildinfo
+
+# Test artifacts
+test-results/
+playwright-report/
+e2e/screenshots/
+
+# Local databases & backups (never ship customer data)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+backups/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

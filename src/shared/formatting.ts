@@ -13,6 +13,16 @@ export function roundMoney(value: number, decimals = 3): number {
   return Math.round((Number.isFinite(value) ? value : 0) * f) / f
 }
 
+/**
+ * Coerce untrusted input to a finite number. Prevents `NaN`/`Infinity`
+ * (e.g. from `Number('abc')` or a missing field) from reaching the database
+ * through non-UI code paths and poisoning totals/stock.
+ */
+export function safeNumber(value: unknown, fallback = 0): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
 export function normalizePhone(phone: string): string {
   if (!phone) return ''
   const trimmed = phone.trim()

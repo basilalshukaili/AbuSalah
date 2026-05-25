@@ -65,11 +65,42 @@ export function restoreBackup(backupPath: string, backupDir: string): void {
   if (existsSync(dbPath())) {
     createBackup(backupDir, 'pre_restore') // propagate any real failure
   }
-  copyFileSync(backupPath, dbPath())
+  const live = dbPath()
+  const tmp = `${live}.restore-tmp`
+  // Step 1: copy the backup to a temp file first. If the disk is full this
+  // fails here, leaving the live DB completely untouched (no corruption).
+  // (We deliberately copy-then-overwrite rather than rename, because renaming
+  // over an existing/locked file throws EPERM on Windows.)
+  try {
+    copyFileSync(backupPath, tmp)
+  } catch (err) {
+    if (existsSync(tmp)) {
+      try {
+        unlinkSync(tmp)
+      } catch {
+        // best-effort cleanup; the live DB is left untouched
+      }
+    }
+    throw err
+  }
+  // Step 2: overwrite the live DB in place from the verified temp copy, then
+  // remove the temp. The temp is the same size as the target, so this local
+  // same-volume copy will not run out of space the backup copy didn't already.
+  try {
+    copyFileSync(tmp, live)
+  } finally {
+    if (existsSync(tmp)) {
+      try {
+        unlinkSync(tmp)
+      } catch {
+        // best-effort cleanup
+      }
+    }
+  }
   // Important: drop any leftover WAL/SHM so libsql does not replay the old
   // journal on top of the restored main file. Caller must close/reconfigure
   // the DB connection separately (the IPC handler does this).
-  removeWalSidecars(dbPath())
+  removeWalSidecars(live)
 }
 
 export function cleanupOld(backupDir: string, keepDays: number): number {

@@ -18,7 +18,7 @@ import {
   listBackups,
   restoreBackup
 } from '../services/backup-service'
-import { closeDatabase, configureDatabase, dbPath, defaultDbPath } from '../db/connection'
+import { checkpointWal, closeDatabase, configureDatabase, dbPath, defaultDbPath } from '../db/connection'
 import { bootstrapSchema } from '../db/bootstrap'
 import { importAll } from '../services/legacy-import'
 import { renderInvoicePdf } from '../services/pdf-service'
@@ -135,9 +135,13 @@ export function registerIpc(): void {
   })
 
   // ---------- Backup ----------
-  ipcMain.handle('backup:create', async (_e, label) => createBackup(_backupDir, label ?? ''))
+  ipcMain.handle('backup:create', async (_e, label) => {
+    await checkpointWal() // flush WAL so the copy contains the latest data
+    return createBackup(_backupDir, label ?? '')
+  })
   ipcMain.handle('backup:list', async () => listBackups(_backupDir))
   ipcMain.handle('backup:restore', async (_e, p) => {
+    await checkpointWal() // ensure the pre_restore snapshot is complete
     restoreBackup(p, _backupDir)
     closeDatabase()
     await configureDatabase(dbPath())
@@ -170,9 +174,24 @@ export async function autoBackupOnStart(): Promise<void> {
   try {
     const settings = await getAllSettings()
     if (!settings.autoBackup) return
+    await checkpointWal() // flush WAL so the backup contains the latest data
     createBackup(_backupDir, 'auto')
     cleanupOld(_backupDir, settings.backupKeepDays)
   } catch (err) {
     console.warn('autoBackup failed:', err)
+    // The owner relies on daily backups — surface a failure (e.g. disk full)
+    // instead of letting it fail silently.
+    try {
+      dialog.showMessageBox({
+        type: 'warning',
+        title: 'النسخ الاحتياطي / Backup',
+        message: 'فشل النسخ الاحتياطي التلقائي\nAutomatic backup failed',
+        detail:
+          (err instanceof Error ? err.message : String(err)) +
+          '\n\nقد تكون مساحة القرص ممتلئة — الرجاء إخلاء مساحة.\nThe disk may be full — please free up space.'
+      })
+    } catch {
+      // dialog unavailable (very early startup) — already logged above
+    }
   }
 }

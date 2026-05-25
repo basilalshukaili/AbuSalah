@@ -1,6 +1,7 @@
 import { and, asc, eq, like, lte, or } from 'drizzle-orm'
 
 import type { Product, ProductInput } from '@shared/types'
+import { safeNumber } from '@shared/formatting'
 import { db } from '../db/connection'
 import { inventoryMovements, products } from '../db/schema'
 
@@ -35,10 +36,10 @@ export async function create(input: ProductInput): Promise<Product> {
       name,
       nameAr: input.nameAr ?? '',
       unit: input.unit || 'm',
-      price: Number(input.price ?? 0),
-      cost: Number(input.cost ?? 0),
-      qty: Number(input.qty ?? 0),
-      lowStockThreshold: Number(input.lowStockThreshold ?? 10),
+      price: safeNumber(input.price, 0),
+      cost: safeNumber(input.cost, 0),
+      qty: safeNumber(input.qty, 0),
+      lowStockThreshold: safeNumber(input.lowStockThreshold, 10),
       category: input.category ?? '',
       notes: input.notes ?? '',
       active: true
@@ -57,11 +58,13 @@ export async function upsertByName(input: ProductInput): Promise<Product> {
     code: input.code ?? existing.code,
     nameAr: input.nameAr ?? existing.nameAr,
     unit: input.unit || existing.unit,
-    price: input.price !== undefined ? Number(input.price) : existing.price,
-    cost: input.cost !== undefined ? Number(input.cost) : existing.cost,
-    qty: input.qty !== undefined ? Number(input.qty) : existing.qty,
+    price: input.price !== undefined ? safeNumber(input.price, existing.price) : existing.price,
+    cost: input.cost !== undefined ? safeNumber(input.cost, existing.cost) : existing.cost,
+    qty: input.qty !== undefined ? safeNumber(input.qty, existing.qty) : existing.qty,
     lowStockThreshold:
-      input.lowStockThreshold !== undefined ? Number(input.lowStockThreshold) : existing.lowStockThreshold,
+      input.lowStockThreshold !== undefined
+        ? safeNumber(input.lowStockThreshold, existing.lowStockThreshold)
+        : existing.lowStockThreshold,
     category: input.category ?? existing.category,
     notes: input.notes ?? existing.notes,
     updatedAt: new Date().toISOString()
@@ -110,10 +113,10 @@ export async function update(id: number, patch: Partial<ProductInput>): Promise<
   if (patch.name !== undefined) updates.name = patch.name.trim()
   if (patch.nameAr !== undefined) updates.nameAr = patch.nameAr
   if (patch.unit !== undefined) updates.unit = patch.unit
-  if (patch.price !== undefined) updates.price = Number(patch.price)
-  if (patch.cost !== undefined) updates.cost = Number(patch.cost)
-  if (patch.qty !== undefined) updates.qty = Number(patch.qty)
-  if (patch.lowStockThreshold !== undefined) updates.lowStockThreshold = Number(patch.lowStockThreshold)
+  if (patch.price !== undefined) updates.price = safeNumber(patch.price)
+  if (patch.cost !== undefined) updates.cost = safeNumber(patch.cost)
+  if (patch.qty !== undefined) updates.qty = safeNumber(patch.qty)
+  if (patch.lowStockThreshold !== undefined) updates.lowStockThreshold = safeNumber(patch.lowStockThreshold, 10)
   if (patch.category !== undefined) updates.category = patch.category
   if (patch.notes !== undefined) updates.notes = patch.notes
   await db().update(products).set(updates).where(eq(products.id, id)).run()
@@ -132,7 +135,8 @@ export async function softDelete(id: number): Promise<void> {
 export async function restock(id: number, qty: number, reason: string): Promise<Product> {
   const existing = await db().select().from(products).where(eq(products.id, id)).get()
   if (!existing) throw new Error(`product ${id} not found`)
-  const newQty = Number(existing.qty) + Number(qty)
+  const addQty = safeNumber(qty, 0)
+  const newQty = safeNumber(existing.qty) + addQty
   await db()
     .update(products)
     .set({ qty: newQty, updatedAt: new Date().toISOString() })
@@ -143,8 +147,8 @@ export async function restock(id: number, qty: number, reason: string): Promise<
     .values({
       productId: id,
       kind: 'restock',
-      qtyDelta: Number(qty),
-      unitCost: Number(existing.cost),
+      qtyDelta: addQty,
+      unitCost: safeNumber(existing.cost),
       reason: reason || ''
     })
     .run()
@@ -155,10 +159,11 @@ export async function restock(id: number, qty: number, reason: string): Promise<
 export async function adjust(id: number, newQty: number, reason: string): Promise<Product> {
   const existing = await db().select().from(products).where(eq(products.id, id)).get()
   if (!existing) throw new Error(`product ${id} not found`)
-  const delta = Number(newQty) - Number(existing.qty)
+  const target = safeNumber(newQty, safeNumber(existing.qty))
+  const delta = target - safeNumber(existing.qty)
   await db()
     .update(products)
-    .set({ qty: Number(newQty), updatedAt: new Date().toISOString() })
+    .set({ qty: target, updatedAt: new Date().toISOString() })
     .where(eq(products.id, id))
     .run()
   await db()

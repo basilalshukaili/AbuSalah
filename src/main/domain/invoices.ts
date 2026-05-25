@@ -17,7 +17,7 @@ import type {
   InvoiceStatus,
   PaymentMethod
 } from '@shared/types'
-import { normalizePhone, roundMoney } from '@shared/formatting'
+import { normalizePhone, roundMoney, safeNumber } from '@shared/formatting'
 import { db, rawClient } from '../db/connection'
 import {
   customers,
@@ -50,13 +50,13 @@ function computeTotals(
 ): { subtotal: number; tax: number; total: number; discount: number } {
   let subtotal = 0
   for (const it of items) {
-    const line = (Number(it.unitPrice) + Number(it.extraPrice ?? 0)) * Number(it.qty)
+    const line = (safeNumber(it.unitPrice) + safeNumber(it.extraPrice, 0)) * safeNumber(it.qty)
     subtotal += line
   }
   subtotal = roundMoney(subtotal)
-  const discount = roundMoney(Math.min(subtotal, Math.max(0, Number(rawDiscount) || 0)))
+  const discount = roundMoney(Math.min(subtotal, Math.max(0, safeNumber(rawDiscount, 0))))
   const taxable = Math.max(0, subtotal - discount)
-  const tax = roundMoney(taxable * Number(taxRate))
+  const tax = roundMoney(taxable * safeNumber(taxRate, 0))
   const total = roundMoney(taxable + tax)
   return { subtotal, tax, total, discount }
 }
@@ -118,14 +118,14 @@ export async function create(input: InvoiceInput): Promise<Invoice> {
   if (input.taxRate === undefined) {
     throw new Error('taxRate is required (inject from settings at IPC boundary)')
   }
-  const taxRate = Number(input.taxRate)
+  const taxRate = safeNumber(input.taxRate, 0)
 
   const { subtotal, tax, total, discount } = computeTotals(
     input.items,
-    Number(input.discount ?? 0),
+    safeNumber(input.discount, 0),
     taxRate
   )
-  const advance = roundMoney(Math.max(0, Number(input.advance ?? 0)))
+  const advance = roundMoney(Math.max(0, safeNumber(input.advance, 0)))
   const balance = roundMoney(total - advance)
   const status = statusFor(total, advance)
 
@@ -159,9 +159,9 @@ export async function create(input: InvoiceInput): Promise<Invoice> {
   }
   const resolved: Resolved[] = []
   for (const li of input.items) {
-    const qty = Number(li.qty)
-    const unitPrice = Number(li.unitPrice)
-    const extra = Number(li.extraPrice ?? 0)
+    const qty = safeNumber(li.qty)
+    const unitPrice = safeNumber(li.unitPrice)
+    const extra = safeNumber(li.extraPrice, 0)
     const lineTotal = roundMoney((unitPrice + extra) * qty)
     let productId = li.productId ?? null
     let currentQty = 0
@@ -226,10 +226,13 @@ export async function create(input: InvoiceInput): Promise<Invoice> {
       })
 
       if (r.productId !== null && (input.documentType ?? 'invoice') !== 'quotation') {
-        const newQty = r.currentQty - r.qty
+        // Relative update (qty = qty - ?) so that multiple lines for the SAME
+        // product on one invoice each decrement correctly. An absolute
+        // `SET qty = currentQty - qty` (currentQty read once before the tx) would
+        // let the last line overwrite the earlier ones — a lost update.
         await tx.execute({
-          sql: `UPDATE products SET qty=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
-          args: [newQty, r.productId]
+          sql: `UPDATE products SET qty=qty-?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
+          args: [r.qty, r.productId]
         })
         await tx.execute({
           sql: `INSERT INTO inventory_movements
@@ -305,10 +308,10 @@ export async function search(filter: SearchFilter = {}): Promise<Invoice[]> {
 
 /**
  * Void an invoice atomically — restores stock for every line item that has a
- * `product_id`, and writes a `void_reversal` movement for each. Idempotent
- * even if a previous void was interrupted, because we check the movement
- * history for a void_reversal of *this* invoice and skip lines that already
- * have one.
+ * `product_id`, and writes a `void_reversal` movement for each. The whole
+ * operation runs in one transaction (all-or-nothing); it is idempotent at the
+ * invoice level because re-voiding an already-void invoice returns early
+ * (the `status === 'void'` guard below).
  */
 export async function voidInvoice(id: number, reason: string): Promise<Invoice> {
   const row = await db().select().from(invoices).where(eq(invoices.id, id)).get()
@@ -316,21 +319,6 @@ export async function voidInvoice(id: number, reason: string): Promise<Invoice> 
   if (row.status === 'void') return rowToDto(row)
 
   const items = await db().select().from(invoiceItems).where(eq(invoiceItems.invoiceId, id)).all()
-  // Find which lines have already been reverted (in case of crash mid-void)
-  const reverted = new Set(
-    (
-      await db()
-        .select({ pid: inventoryMovements.productId })
-        .from(inventoryMovements)
-        .where(
-          and(
-            eq(inventoryMovements.invoiceId, row.id),
-            eq(inventoryMovements.kind, 'void_reversal')
-          )
-        )
-        .all()
-    ).map((r) => r.pid)
-  )
 
   // Pre-fetch products for their current cost
   const productById = new Map<number, typeof products.$inferSelect>()
@@ -353,7 +341,6 @@ export async function voidInvoice(id: number, reason: string): Promise<Invoice> 
     })
     for (const it of items) {
       if (it.productId === null) continue
-      if (reverted.has(it.productId)) continue
       const p = productById.get(it.productId)
       if (!p) continue
       await tx.execute({

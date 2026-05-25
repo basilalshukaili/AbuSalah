@@ -50,6 +50,20 @@ export function closeDatabase(): void {
   }
 }
 
+/**
+ * Flush the WAL into the main database file so a file-copy backup captures every
+ * committed transaction. Best-effort: a failed checkpoint must never block a
+ * backup from being taken.
+ */
+export async function checkpointWal(): Promise<void> {
+  if (!_client) return
+  try {
+    await _client.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+  } catch {
+    // best-effort
+  }
+}
+
 export function defaultDbPath(userDataDir: string): string {
   return join(userDataDir, 'data', 'abusalah.sqlite3')
 }

@@ -9,6 +9,15 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 test('legacy bills/items folder imports successfully', async () => {
+  // This test needs real legacy fixtures (bills/ and items/) staged next to the
+  // repo. They are not present in every environment, so skip — rather than
+  // hard-fail with ENOENT — when they're absent.
+  const realLegacyRoot = join(process.cwd(), '..')
+  test.skip(
+    !existsSync(join(realLegacyRoot, 'bills')) || !existsSync(join(realLegacyRoot, 'items')),
+    'legacy bills/items fixtures not present in this environment'
+  )
+
   const userData = join(tmpdir(), `abusalah-import-${Date.now()}`)
   if (existsSync(userData)) rmSync(userData, { recursive: true, force: true })
   mkdirSync(userData, { recursive: true })
@@ -18,7 +27,6 @@ test('legacy bills/items folder imports successfully', async () => {
   if (existsSync(legacyDir)) rmSync(legacyDir, { recursive: true, force: true })
   mkdirSync(legacyDir, { recursive: true })
 
-  const realLegacyRoot = join(process.cwd(), '..')
   cpSync(join(realLegacyRoot, 'bills'), join(legacyDir, 'bills'), { recursive: true })
   cpSync(join(realLegacyRoot, 'items'), join(legacyDir, 'items'), { recursive: true })
 

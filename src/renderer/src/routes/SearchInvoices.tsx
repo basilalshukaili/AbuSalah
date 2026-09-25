@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, Printer, Search, Trash2 } from 'lucide-react'
+import { CircleDollarSign, FileText, Loader2, Printer, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Card, CardContent } from '@/components/ui/card'
@@ -35,6 +35,10 @@ export function SearchInvoices() {
   const [to, setTo] = useState('')
   const [opened, setOpened] = useState<Invoice | null>(null)
   const [confirmVoid, setConfirmVoid] = useState<Invoice | null>(null)
+  const [printingId, setPrintingId] = useState<number | null>(null)
+  const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null)
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentBusy, setPaymentBusy] = useState(false)
 
   const { data, isFetching, refetch } = useQuery({
     queryKey: ['invoices', 'search', term, from, to],
@@ -48,10 +52,59 @@ export function SearchInvoices() {
   })
 
   async function printInvoice(inv: Invoice) {
+    if (printingId !== null) return
+    setPrintingId(inv.id)
+    const toastId = toast.loading(t('msg.printing'))
     try {
       await window.api.invoicePrint(inv.id)
+      toast.success(t('msg.printSent'), { id: toastId })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), {
+        id: toastId
+      })
+    } finally {
+      setPrintingId(null)
+    }
+  }
+
+  function openPayment(inv: Invoice) {
+    setOpened(null)
+    setPaymentInvoice(inv)
+    setPaymentAmount(inv.balance.toFixed(3))
+  }
+
+  async function recordPayment() {
+    if (!paymentInvoice || paymentBusy) return
+    const amount = Number(paymentAmount.trim().replace(',', '.'))
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error(t('invoice.paymentInvalid'))
+      return
+    }
+    if (amount > paymentInvoice.balance + 1e-6) {
+      toast.error(t('invoice.paymentExceedsBalance'))
+      return
+    }
+
+    setPaymentBusy(true)
+    try {
+      const updated = await window.api.invoicesRecordPayment(paymentInvoice.id, amount)
+      toast.success(
+        t('msg.paymentRecorded', {
+          amount: formatMoney(amount),
+          number: updated.number
+        })
+      )
+      setOpened((current) => (current?.id === updated.id ? updated : current))
+      setPaymentInvoice(null)
+      setPaymentAmount('')
+      qc.invalidateQueries({ queryKey: ['invoices'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
+      qc.invalidateQueries({ queryKey: ['kpis'] })
+      qc.invalidateQueries({ queryKey: ['reports'] })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPaymentBusy(false)
     }
   }
 
@@ -123,7 +176,15 @@ export function SearchInvoices() {
               <TableBody>
                 {data.map((inv) => (
                   <TableRow key={inv.id}>
-                    <TableCell className="font-medium">#{inv.number}</TableCell>
+                    <TableCell className="font-medium">
+                      <button
+                        type="button"
+                        className="min-h-11 rounded px-1 text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => setOpened(inv)}
+                      >
+                        #{inv.number}
+                      </button>
+                    </TableCell>
                     <TableCell>{(inv.date || '').slice(0, 10)}</TableCell>
                     <TableCell>{inv.customerName || '—'}</TableCell>
                     <TableCell className="font-mono">{inv.customerPhone || '—'}</TableCell>
@@ -146,7 +207,7 @@ export function SearchInvoices() {
                                   : 'bg-destructive/10 text-destructive'
                           }`}
                       >
-                        {inv.status}
+                        {t(`invoice.statusValues.${inv.status}`)}
                       </span>
                     </TableCell>
                     <TableCell className="text-end">
@@ -164,9 +225,27 @@ export function SearchInvoices() {
                           size="sm"
                           onClick={() => printInvoice(inv)}
                           aria-label="print"
+                          disabled={printingId !== null}
                         >
-                          <Printer className="h-4 w-4" />
+                          {printingId === inv.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Printer className="h-4 w-4" />
+                          )}
                         </Button>
+                        {inv.balance > 0 &&
+                          (inv.status === 'unpaid' || inv.status === 'partial') && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openPayment(inv)}
+                              aria-label={t('invoice.recordPayment')}
+                              title={t('invoice.recordPayment')}
+                              disabled={paymentBusy}
+                            >
+                              <CircleDollarSign className="h-4 w-4 text-success" />
+                            </Button>
+                          )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -228,14 +307,148 @@ export function SearchInvoices() {
                     {opened.notes}
                   </p>
                 )}
+                <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+                  <div>
+                    <div className="text-muted-foreground">
+                      {t('invoice.amountPaid')}
+                    </div>
+                    <div className="font-mono font-semibold">
+                      {formatMoney(opened.advance)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">
+                      {t('invoice.remainingBalance')}
+                    </div>
+                    <div className="font-mono font-semibold">
+                      {formatMoney(opened.balance)}
+                    </div>
+                  </div>
+                </div>
               </div>
               <DialogFooter>
-                <Button onClick={() => printInvoice(opened)}>
-                  <Printer className="h-4 w-4" />
+                {opened.balance > 0 &&
+                  (opened.status === 'unpaid' || opened.status === 'partial') && (
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      onClick={() => openPayment(opened)}
+                    >
+                      <CircleDollarSign className="h-4 w-4 text-success" />
+                      {t('invoice.recordPayment')}
+                    </Button>
+                  )}
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={() => printInvoice(opened)}
+                  disabled={printingId !== null}
+                >
+                  {printingId === opened.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Printer className="h-4 w-4" />
+                  )}
                   {t('common.print')}
                 </Button>
               </DialogFooter>
             </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!paymentInvoice}
+        onOpenChange={(open) => {
+          if (!open && !paymentBusy) {
+            setPaymentInvoice(null)
+            setPaymentAmount('')
+          }
+        }}
+      >
+        <DialogContent>
+          {paymentInvoice && (
+            <form
+              className="space-y-5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void recordPayment()
+              }}
+            >
+              <DialogHeader>
+                <DialogTitle>{t('invoice.recordPayment')}</DialogTitle>
+                <DialogDescription>
+                  {t('invoice.paymentConfirm', {
+                    number: paymentInvoice.number
+                  })}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3 text-sm">
+                <div>
+                  <div className="text-muted-foreground">
+                    {t('invoice.amountPaid')}
+                  </div>
+                  <div className="font-mono font-semibold">
+                    {formatMoney(paymentInvoice.advance)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">
+                    {t('invoice.remainingBalance')}
+                  </div>
+                  <div className="font-mono font-semibold text-destructive">
+                    {formatMoney(paymentInvoice.balance)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="payment-amount">
+                  {t('invoice.paymentAmount')}
+                </Label>
+                <Input
+                  id="payment-amount"
+                  type="text"
+                  inputMode="decimal"
+                  autoFocus
+                  value={paymentAmount}
+                  onChange={(event) => setPaymentAmount(event.target.value)}
+                  className="h-12 text-base font-mono"
+                  dir="ltr"
+                  disabled={paymentBusy}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('invoice.paymentHint')}
+                </p>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => {
+                    setPaymentInvoice(null)
+                    setPaymentAmount('')
+                  }}
+                  disabled={paymentBusy}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  type="submit"
+                  className="w-full sm:w-auto"
+                  disabled={paymentBusy}
+                >
+                  {paymentBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CircleDollarSign className="h-4 w-4" />
+                  )}
+                  {t('invoice.recordPayment')}
+                </Button>
+              </DialogFooter>
+            </form>
           )}
         </DialogContent>
       </Dialog>

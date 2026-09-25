@@ -15,8 +15,8 @@
  *   Signature row
  */
 
-import { BrowserWindow, app } from 'electron'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { BrowserWindow, app, type WebContentsPrintOptions } from 'electron'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Invoice, Settings } from '@shared/types'
@@ -147,6 +147,7 @@ function renderInvoiceHtml(inv: Invoice, settings: Settings): string {
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8" />
+<title>Abu Salah Invoice #${esc(String(inv.number))}</title>
 <style>
   @font-face {
     font-family: 'Cairo';
@@ -612,33 +613,127 @@ export async function renderInvoicePdf(
   }
 }
 
-/**
- * Print an invoice directly to Windows' default printer without opening a
- * browser or showing a print dialog. The renderer receives a useful error when
- * Windows has no printer (or no default printer) configured.
- */
-export async function printInvoiceSilently(
+const PRINT_CALLBACK_TIMEOUT_MS = 60_000
+const PRINT_HANDOFF_GRACE_MS = 1_500
+
+const FATAL_PRINTER_STATUS_FLAGS: ReadonlyArray<[number, string]> = [
+  [0x000001, 'paused'],
+  [0x000002, 'error'],
+  [0x000004, 'pending deletion'],
+  [0x000008, 'paper jam'],
+  [0x000010, 'paper out'],
+  [0x000040, 'paper problem'],
+  [0x000080, 'offline'],
+  [0x000800, 'output bin full'],
+  [0x001000, 'not available'],
+  [0x040000, 'no toner'],
+  [0x100000, 'user intervention required'],
+  [0x200000, 'out of memory'],
+  [0x400000, 'door open']
+]
+
+let printQueue: Promise<void> = Promise.resolve()
+const activeInvoicePrints = new Map<number, Promise<void>>()
+
+function writePrintLog(
+  level: 'info' | 'error',
+  event: string,
+  details: Record<string, unknown>
+): void {
+  const entry = JSON.stringify({
+    at: new Date().toISOString(),
+    event,
+    ...details
+  })
+  if (level === 'error') console.error(`[print] ${entry}`)
+  else console.info(`[print] ${entry}`)
+
+  try {
+    appendFileSync(
+      join(app.getPath('userData'), 'print.log'),
+      `${entry}\n`,
+      'utf8'
+    )
+  } catch {
+    // Logging must never prevent an invoice from printing.
+  }
+}
+
+function fatalPrinterProblems(status: number): string[] {
+  if (!Number.isFinite(status) || status <= 0) return []
+  return FATAL_PRINTER_STATUS_FLAGS.filter(
+    ([flag]) => (status & flag) !== 0
+  ).map(([, description]) => description)
+}
+
+async function waitForPrintableDocument(win: BrowserWindow): Promise<void> {
+  await win.webContents.executeJavaScript(`
+    (async () => {
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      await Promise.all(Array.from(document.images).map(async (image) => {
+        if (!image.complete) {
+          await new Promise((resolve) => {
+            image.addEventListener('load', resolve, { once: true });
+            image.addEventListener('error', resolve, { once: true });
+          });
+        }
+        if (typeof image.decode === 'function') {
+          try { await image.decode(); } catch { /* load/error above is sufficient */ }
+        }
+      }));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    })()
+  `)
+}
+
+function submitPrint(
+  win: BrowserWindow,
+  options: WebContentsPrintOptions
+): Promise<{ success: boolean; failureReason: string }> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(
+        new Error(
+          'Printing timed out while waiting for Windows. Check the printer queue before trying again to avoid a duplicate copy. / انتهت مهلة الطباعة. تحقق من قائمة انتظار الطابعة قبل المحاولة مرة أخرى لتجنب طباعة نسخة مكررة.'
+        )
+      )
+    }, PRINT_CALLBACK_TIMEOUT_MS)
+
+    win.webContents.print(options, (success, failureReason) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve({ success, failureReason })
+    })
+  })
+}
+
+async function performSilentPrint(
   inv: Invoice,
   settings: Settings
 ): Promise<void> {
   const html = renderInvoiceHtml(inv, settings)
   const win = new BrowserWindow({
     show: false,
+    title: `Abu Salah Invoice #${inv.number}`,
     width: 794,
     height: 1123,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      backgroundThrottling: false
     }
   })
 
+  let printerName = ''
   try {
     const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html)
     await win.loadURL(dataUrl)
-    await win.webContents.executeJavaScript(
-      'document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()'
-    )
+    await waitForPrintableDocument(win)
 
     const printers = await win.webContents.getPrintersAsync()
     if (printers.length === 0) {
@@ -653,32 +748,105 @@ export async function printInvoiceSilently(
         'No default printer is configured in Windows. Set a default printer and try again. / لم يتم تعيين طابعة افتراضية في ويندوز.'
       )
     }
+    printerName = printer.name
 
-    await new Promise<void>((resolve, reject) => {
-      win.webContents.print(
-        {
-          silent: true,
-          printBackground: true,
-          deviceName: printer.name,
-          margins: { marginType: 'none' },
-          pageSize: 'A4'
-        },
-        (success, failureReason) => {
-          if (success) {
-            resolve()
-          } else {
-            reject(
-              new Error(
-                `Printing failed: ${failureReason || 'the default printer did not accept the job'}. / فشلت الطباعة.`
-              )
-            )
-          }
-        }
+    const printerProblems = fatalPrinterProblems(printer.status)
+    if (printerProblems.length > 0) {
+      throw new Error(
+        `The default printer "${printer.displayName || printer.name}" is not ready (${printerProblems.join(', ')}). Fix it on the PC and try again. / الطابعة الافتراضية غير جاهزة. تحقق من الورق والحبر وحالة الطابعة على الكمبيوتر ثم حاول مرة أخرى.`
       )
+    }
+
+    writePrintLog('info', 'submit', {
+      invoiceId: inv.id,
+      invoiceNumber: inv.number,
+      printer: printerName,
+      printerStatus: printer.status
     })
+
+    let result = await submitPrint(win, {
+      silent: true,
+      printBackground: true,
+      deviceName: printer.name,
+      margins: { marginType: 'none' },
+      pageSize: 'A4'
+    })
+
+    // Electron identifies this one failure as occurring before a job is
+    // accepted. Let Windows use its default settings once; never retry an
+    // ambiguous timeout or a general "Print job failed" response because that
+    // could create duplicate invoices.
+    if (
+      !result.success &&
+      result.failureReason === 'Invalid printer settings'
+    ) {
+      writePrintLog('info', 'retry-default-settings', {
+        invoiceId: inv.id,
+        invoiceNumber: inv.number,
+        printer: printerName
+      })
+      result = await submitPrint(win, {
+        silent: true,
+        printBackground: true
+      })
+    }
+
+    if (!result.success) {
+      throw new Error(
+        `Printing failed: ${result.failureReason || 'the default printer did not accept the job'}. / فشلت الطباعة.`
+      )
+    }
+
+    // Keep Chromium's hidden print document alive briefly after Windows has
+    // accepted it. Some drivers finish copying the rendered page after the
+    // callback fires.
+    await new Promise((resolve) => setTimeout(resolve, PRINT_HANDOFF_GRACE_MS))
+    writePrintLog('info', 'accepted', {
+      invoiceId: inv.id,
+      invoiceNumber: inv.number,
+      printer: printerName
+    })
+  } catch (error) {
+    writePrintLog('error', 'failed', {
+      invoiceId: inv.id,
+      invoiceNumber: inv.number,
+      printer: printerName || undefined,
+      error: error instanceof Error ? error.message : String(error)
+    })
+    throw error
   } finally {
     if (!win.isDestroyed()) win.destroy()
   }
+}
+
+/**
+ * Print an invoice directly to Windows' default printer without opening a
+ * browser or showing a print dialog. Jobs are serialized so phone and desktop
+ * requests cannot compete for Chromium's print pipeline, and simultaneous
+ * requests for the same invoice share one physical print attempt.
+ */
+export function printInvoiceSilently(
+  inv: Invoice,
+  settings: Settings
+): Promise<void> {
+  const active = activeInvoicePrints.get(inv.id)
+  if (active) return active
+
+  const job = printQueue.then(
+    () => performSilentPrint(inv, settings),
+    () => performSilentPrint(inv, settings)
+  )
+  printQueue = job.then(
+    () => undefined,
+    () => undefined
+  )
+  activeInvoicePrints.set(inv.id, job)
+  const clear = (): void => {
+    if (activeInvoicePrints.get(inv.id) === job)
+      activeInvoicePrints.delete(inv.id)
+  }
+  job.then(clear, clear)
+  return job
 }
 
 // Exposed for tests / preview

@@ -244,13 +244,17 @@ export function NewInvoice() {
       qc.invalidateQueries({ queryKey: ['products'] })
       qc.invalidateQueries({ queryKey: ['customers'] })
       if (printAfter) {
+        const printToastId = toast.loading(t('msg.printing'))
         try {
           await window.api.invoicePrint(inv.id)
+          toast.success(t('msg.printSent'), { id: printToastId })
         } catch (printError) {
           // The invoice is already saved at this point. Report the printer
           // problem without leaving the completed form on screen, which could
           // tempt the operator to save the same invoice a second time.
-          toast.error(printError instanceof Error ? printError.message : String(printError))
+          toast.error(printError instanceof Error ? printError.message : String(printError), {
+            id: printToastId
+          })
         }
       }
       clearForm()

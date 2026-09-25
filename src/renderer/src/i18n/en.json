@@ -89,7 +89,21 @@
     "navHint": "↑↓ Navigate · Enter Select",
     "noItemsYet": "No items added yet — pick a product, set quantity, then click \"Add Item\".",
     "void": "Void Invoice",
-    "voidConfirm": "Void this invoice? Stock will be restored."
+    "voidConfirm": "Void this invoice? Stock will be restored.",
+    "recordPayment": "Record Payment",
+    "paymentAmount": "Payment amount",
+    "amountPaid": "Already paid",
+    "remainingBalance": "Remaining balance",
+    "paymentConfirm": "Record a payment for invoice #{{number}}. The full remaining balance is filled in by default.",
+    "paymentHint": "Leave the full balance to mark the invoice paid, or enter a smaller partial payment.",
+    "paymentInvalid": "Enter a payment amount greater than zero.",
+    "paymentExceedsBalance": "The payment cannot be greater than the remaining balance.",
+    "statusValues": {
+      "unpaid": "Unpaid",
+      "partial": "Partially paid",
+      "paid": "Paid",
+      "void": "Void"
+    }
   },
   "search": {
     "title": "Search Invoices",
@@ -172,6 +186,9 @@
   "msg": {
     "invoiceSaved": "Invoice #{{number}} saved.",
     "invoiceVoided": "Invoice voided.",
+    "paymentRecorded": "Payment of {{amount}} recorded for invoice #{{number}}.",
+    "printing": "Sending invoice to the PC printer…",
+    "printSent": "Print job accepted by the PC printer.",
     "productAdded": "Product added.",
     "productUpdated": "Product updated.",
     "productDisabled": "Product disabled.",

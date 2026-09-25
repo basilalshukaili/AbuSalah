@@ -76,8 +76,8 @@ export function Reports() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">{t('reports.title')}</h1>
+    <div className="space-y-4 sm:space-y-6">
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t('reports.title')}</h1>
 
       <Card>
         <CardContent className="p-4 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
@@ -112,7 +112,7 @@ export function Reports() {
       </div>
 
       <Tabs defaultValue="daily" className="w-full">
-        <TabsList>
+        <TabsList className="h-auto w-full justify-start overflow-x-auto">
           <TabsTrigger value="daily">{t('reports.daily')}</TabsTrigger>
           <TabsTrigger value="monthly">{t('reports.monthly')}</TabsTrigger>
           <TabsTrigger value="products">{t('reports.topProducts')}</TabsTrigger>

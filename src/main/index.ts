@@ -1,7 +1,15 @@
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { join } from 'node:path'
 
-import { autoBackupOnStart, configurePathsAndDb, registerIpc } from './ipc/register'
+import packageJson from '../../package.json'
+import {
+  autoBackupOnStart,
+  configurePathsAndDb,
+  paths,
+  printInvoiceById,
+  registerIpc
+} from './ipc/register'
+import { startLanServer, type LanServerHandle } from './http/lan-server'
 
 // Electron's GPU shader disk cache fails to initialize on some Windows setups
 // (synced/shared folders, antivirus locks, or a second instance), spamming
@@ -10,6 +18,7 @@ import { autoBackupOnStart, configurePathsAndDb, registerIpc } from './ipc/regis
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache')
 
 let mainWindow: BrowserWindow | null = null
+let lanServer: LanServerHandle | null = null
 
 async function createWindow(): Promise<void> {
   const win = new BrowserWindow({
@@ -62,8 +71,30 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     try {
-      await configurePathsAndDb(app.getPath('userData'))
-      registerIpc()
+      const userDataDir = app.getPath('userData')
+      await configurePathsAndDb(userDataDir)
+      const dirs = paths(userDataDir)
+
+      try {
+        lanServer = await startLanServer({
+          rendererDir: join(__dirname, '../renderer'),
+          exportDir: dirs.exports,
+          appVersion: packageJson.version,
+          port: 47_831,
+          sessionStatePath: join(userDataDir, 'mobile-access.json'),
+          printInvoice: printInvoiceById
+        })
+      } catch (error) {
+        console.error('Phone access failed to start:', error)
+        await dialog.showMessageBox({
+          type: 'warning',
+          title: 'Phone access unavailable',
+          message: 'Abu Salah will continue on this PC, but phone access could not start.',
+          detail: error instanceof Error ? error.message : String(error)
+        })
+      }
+
+      registerIpc(lanServer)
       await autoBackupOnStart()
       await createWindow()
     } catch (err) {
@@ -83,6 +114,18 @@ if (!gotSingleInstanceLock) {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// Let active LAN responses finish and persist phone sessions before exit.
+let closingLanServer = false
+app.on('before-quit', (event) => {
+  if (!lanServer || closingLanServer) return
+  event.preventDefault()
+  closingLanServer = true
+  void lanServer.close().finally(() => {
+    lanServer = null
+    app.quit()
+  })
 })
 
 // Hardening: disable navigation, deny all permission requests, block webview attach

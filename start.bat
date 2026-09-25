@@ -31,13 +31,35 @@ if not exist "node_modules\.installed" (
         pause
         exit /b 1
     )
-    type nul > "node_modules\.installed"
 )
 
-REM 3. Build production bundles if missing
+REM 3. Repair incomplete Electron installs. npm 11 may defer package
+REM    install scripts, and newer Node releases can exit before Electron's
+REM    asynchronous extraction has completed.
+set "ELECTRON_EXE=%~dp0node_modules\electron\dist\electron.exe"
+if not exist "%ELECTRON_EXE%" (
+    echo Installing Electron runtime...
+    call node scripts\ensure-electron.cjs
+    if errorlevel 1 (
+        echo [ERROR] Electron runtime installation failed.
+        pause
+        exit /b 1
+    )
+)
+
+if not exist "%ELECTRON_EXE%" (
+    echo [ERROR] Electron runtime is still missing after repair.
+    pause
+    exit /b 1
+)
+
+REM Only mark installation complete after the runtime has been verified.
+type nul > "node_modules\.installed"
+
+REM 4. Build production bundles if missing
 if not exist "out\main\index.js" (
     echo Building application...
-    call npx electron-vite build
+    call npm run build
     if errorlevel 1 (
         echo [ERROR] Build failed.
         pause
@@ -45,14 +67,8 @@ if not exist "out\main\index.js" (
     )
 )
 
-REM 4. Launch the real electron.exe directly so the app keeps running
+REM 5. Launch the real electron.exe directly so the app keeps running
 REM    after this window closes (npx would spawn a shim that dies with it)
-set "ELECTRON_EXE=%~dp0node_modules\electron\dist\electron.exe"
-if not exist "%ELECTRON_EXE%" (
-    echo [ERROR] Electron binary not found. Delete node_modules\.installed and re-run.
-    pause
-    exit /b 1
-)
 echo Launching Abu Salah...
 start "Abu Salah" "%ELECTRON_EXE%" "%~dp0out\main\index.js"
 

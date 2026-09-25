@@ -244,7 +244,14 @@ export function NewInvoice() {
       qc.invalidateQueries({ queryKey: ['products'] })
       qc.invalidateQueries({ queryKey: ['customers'] })
       if (printAfter) {
-        await window.api.invoicePrint(inv.id)
+        try {
+          await window.api.invoicePrint(inv.id)
+        } catch (printError) {
+          // The invoice is already saved at this point. Report the printer
+          // problem without leaving the completed form on screen, which could
+          // tempt the operator to save the same invoice a second time.
+          toast.error(printError instanceof Error ? printError.message : String(printError))
+        }
       }
       clearForm()
     } catch (err) {
@@ -318,8 +325,8 @@ export function NewInvoice() {
     <div className="space-y-4">
       {/* ── Title + keyboard hint strip ─────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">{t('invoice.newTitle')}</h1>
-        <div className="flex gap-2 flex-wrap">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t('invoice.newTitle')}</h1>
+        <div className="hidden gap-2 md:flex md:flex-wrap">
           <kbd className="inline-flex items-center gap-1 rounded border bg-muted px-2 py-1 text-xs font-mono text-muted-foreground">
             Ctrl+P → {t('invoice.saveAndPrint')}
           </kbd>
@@ -678,17 +685,17 @@ export function NewInvoice() {
       </div>
 
       {/* ── Action buttons ───────────────────────────────────────────── */}
-      <div className="flex flex-col-reverse md:flex-row gap-3 justify-between items-center">
-        <Button variant="outline" size="lg" onClick={clearForm} className="h-14 text-base px-6">
+      <div className="flex flex-col-reverse gap-3 md:flex-row md:items-center md:justify-between">
+        <Button variant="outline" size="lg" onClick={clearForm} className="h-14 w-full px-6 text-base md:w-auto">
           🆕 {t('invoice.nextCustomer')}
         </Button>
-        <div className="flex gap-3">
+        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 md:flex md:w-auto">
           <Button
             variant="success"
             size="lg"
             onClick={() => save(false)}
             disabled={busy || lines.length === 0}
-            className="h-14 text-base px-6"
+            className="h-14 w-full px-6 text-base"
           >
             <Save className="h-5 w-5" />
             {t('invoice.saveOnly')}
@@ -698,7 +705,7 @@ export function NewInvoice() {
             size="lg"
             onClick={() => save(true)}
             disabled={busy || lines.length === 0}
-            className="h-14 text-base px-6"
+            className="h-14 w-full px-6 text-base"
           >
             <Printer className="h-5 w-5" />
             {t('invoice.saveAndPrint')}

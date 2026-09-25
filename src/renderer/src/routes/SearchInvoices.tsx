@@ -68,8 +68,8 @@ export function SearchInvoices() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">{t('search.title')}</h1>
+    <div className="space-y-4 sm:space-y-6">
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t('search.title')}</h1>
 
       <Card>
         <CardContent className="p-6 grid grid-cols-1 md:grid-cols-12 gap-4 items-end">

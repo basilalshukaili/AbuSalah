@@ -27,6 +27,9 @@ and in printed invoices.
   customers; export to **Excel** and **PDF**.
 - **Bilingual UI** with instant RTL/LTR switch, light/dark themes, and large accessible
   text for low‑vision users.
+- **Phone access on the local Wi‑Fi** — open the one-click URL shown in
+  **Settings → Mobile access**. The responsive phone UI uses the same live data as the
+  PC, and phone print buttons send directly to the PC's default printer.
 - **Reliable** — transactional (ACID) writes via libSQL, automatic backup on launch,
   restore from backup, and one‑click import of legacy data.
 
@@ -87,11 +90,36 @@ The app runs **from source** — no installer required.
 
 **Updating to the latest version:**
 
-- Double‑click **`update.bat`**. It downloads the newest code (`git fetch` +
-  `git reset --hard origin/main`), refreshes dependencies, rebuilds, and relaunches.
+- Double‑click **`update.bat`**. It safeguards any local changes, downloads and applies
+  only a safe fast-forward update, restores the safeguarded changes, refreshes
+  dependencies, rebuilds, and relaunches. It never intentionally discards local files.
 
-> The shop's data (database + automatic backups) lives under `%APPDATA%\Abu Salah`,
+> This source-run installation's data (database + automatic backups) lives under
+> `%APPDATA%\Electron`,
 > **outside** the project folder — so updating the code never touches it.
+
+## Phone access
+
+The built-in LAN server uses fixed TCP port **47831**. There is no phone app or printer
+driver to install:
+
+1. Keep the Abu Salah desktop app open and keep the PC awake.
+2. Connect the PC and phone to the same trusted shop/home Wi-Fi.
+3. On the PC, open **Settings → Mobile access** and copy the displayed one-click URL.
+4. Open that complete URL on the phone. Pairing is automatic, and the access key is
+   immediately removed from the phone's address bar.
+
+On first setup, run **`enable-phone-firewall.bat`** once and approve the Windows
+administrator prompt. Its rule is limited to Private networks, the local subnet, and
+TCP 47831. If Windows currently labels the trusted Wi-Fi as Public, change that
+specific Wi-Fi's **Network profile type** to **Private** in Windows Settings.
+
+Printing from either the PC or phone is silent: the job is sent to the Windows default
+printer on the PC. If no printer/default printer is available, the app shows a clear
+error instead of opening a browser.
+
+Do not expose port 47831 with router port-forwarding, and do not enable access on
+hotel, airport, café, or other untrusted Wi-Fi.
 
 ### Optional: standalone installer
 
@@ -102,8 +130,8 @@ recommended path.
 
 ## Data & backups
 
-- The database and automatic backups are stored per‑Windows‑user under
-  **`%APPDATA%\Abu Salah`**, so data survives reinstalls and updates.
+- In the recommended source-run setup, the database and automatic backups are stored
+  per-Windows-user under **`%APPDATA%\Electron`**, so data survives code updates.
 - A backup is taken automatically on launch; restore via **Settings → Data**.
 - Database files (`*.db`) are git‑ignored and must never be committed.
 

@@ -8,8 +8,11 @@ export default defineConfig({
     include: ['src/test/**/*.test.ts'],
     reporters: ['verbose'],
     testTimeout: 20000,
-    pool: 'forks',
-    poolOptions: { forks: { singleFork: true } } // libsql + shared module-level engine
+    // Node 26 can terminate Vitest's fork worker before results are reported.
+    // A single worker thread keeps libsql's shared module-level engine isolated
+    // while remaining compatible with current and LTS Node releases.
+    pool: 'threads',
+    poolOptions: { threads: { singleThread: true } }
   },
   resolve: {
     alias: {

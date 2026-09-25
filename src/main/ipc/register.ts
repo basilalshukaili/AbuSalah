@@ -4,14 +4,11 @@
  * which is in turn typed by `IpcApi` in `@shared/types`.
  */
 
-import { app, dialog, ipcMain, shell } from 'electron'
+import { app, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 
-import * as customers from '../domain/customers'
-import * as products from '../domain/products'
 import * as invoices from '../domain/invoices'
-import * as reports from '../domain/reports'
-import { getAllSettings, updateSettings } from '../db/settings-repo'
+import { getAllSettings } from '../db/settings-repo'
 import {
   createBackup,
   cleanupOld,
@@ -21,10 +18,15 @@ import {
 import { checkpointWal, closeDatabase, configureDatabase, dbPath, defaultDbPath } from '../db/connection'
 import { bootstrapSchema } from '../db/bootstrap'
 import { importAll } from '../services/legacy-import'
-import { renderInvoicePdf } from '../services/pdf-service'
+import { printInvoiceSilently, renderInvoicePdf } from '../services/pdf-service'
 import { exportSalesExcel } from '../services/excel-export'
+import { invokeOperation, type RemoteMethodName } from '../api/operations'
+import { enqueueMutation } from '../api/mutation-queue'
+import type { LanServerHandle } from '../http/lan-server'
+import type { MobileAccessInfo } from '@shared/types'
 
 import { existsSync, mkdirSync, statSync } from 'node:fs'
+import packageJson from '../../../package.json'
 
 let _backupDir = ''
 let _exportDir = ''
@@ -62,56 +64,47 @@ export async function configurePathsAndDb(userDataDir: string): Promise<void> {
   await bootstrapSchema()
 }
 
-export function registerIpc(): void {
-  // ---------- Settings ----------
-  ipcMain.handle('settings:getAll', async () => await getAllSettings())
-  ipcMain.handle('settings:update', async (_e, patch) => await updateSettings(patch))
+export async function printInvoiceById(id: number): Promise<void> {
+  const inv = await invoices.getById(Number(id))
+  if (!inv) throw new Error(`Invoice ${id} was not found. / لم يتم العثور على الفاتورة.`)
+  const settings = await getAllSettings()
+  await printInvoiceSilently(inv, settings)
+}
 
-  // ---------- Customers ----------
-  ipcMain.handle('customers:list', async (_e, term) => customers.search(term ?? ''))
-  ipcMain.handle('customers:get', async (_e, id) => customers.getById(Number(id)))
-  ipcMain.handle('customers:upsert', async (_e, input) => customers.upsertByPhone(input))
-  ipcMain.handle('customers:update', async (_e, id, patch) => customers.update(Number(id), patch))
-  ipcMain.handle('customers:delete', async (_e, id) => customers.remove(Number(id)))
-  ipcMain.handle('customers:outstanding', async (_e, id) => customers.outstandingBalance(Number(id)))
+export function registerIpc(lanServer: LanServerHandle | null): void {
+  // The Electron UI and phone UI use the same validated operation dispatcher,
+  // including one shared mutation queue for invoice-number safety.
+  const registerOperation = (channel: string, method: RemoteMethodName): void => {
+    ipcMain.handle(channel, async (_event, ...args: unknown[]) => invokeOperation(method, args))
+  }
 
-  // ---------- Products ----------
-  ipcMain.handle('products:list', async (_e, opts) => products.list(opts ?? {}))
-  ipcMain.handle('products:get', async (_e, id) => products.getById(Number(id)))
-  ipcMain.handle('products:create', async (_e, input) => products.create(input))
-  ipcMain.handle('products:update', async (_e, id, patch) => products.update(Number(id), patch))
-  ipcMain.handle('products:delete', async (_e, id) => products.softDelete(Number(id)))
-  ipcMain.handle('products:restock', async (_e, id, qty, reason) =>
-    products.restock(Number(id), Number(qty), reason ?? '')
-  )
-
-  // ---------- Invoices ----------
-  ipcMain.handle('invoices:create', async (_e, input) => {
-    // Inject default tax rate from settings if absent
-    if (input.taxRate === undefined) {
-      const s = await getAllSettings()
-      input.taxRate = s.taxRate
-    }
-    return invoices.create(input)
-  })
-  ipcMain.handle('invoices:get', async (_e, id) => invoices.getById(Number(id)))
-  ipcMain.handle('invoices:getByNumber', async (_e, no) => invoices.getByNumber(Number(no)))
-  ipcMain.handle('invoices:search', async (_e, filter) => invoices.search(filter ?? {}))
-  ipcMain.handle('invoices:void', async (_e, id, reason) => invoices.voidInvoice(Number(id), reason ?? ''))
-  ipcMain.handle('invoices:recordPayment', async (_e, id, amount) =>
-    invoices.recordPayment(Number(id), Number(amount))
-  )
+  registerOperation('settings:getAll', 'settingsGetAll')
+  registerOperation('settings:update', 'settingsUpdate')
+  registerOperation('customers:list', 'customersList')
+  registerOperation('customers:get', 'customersGet')
+  registerOperation('customers:upsert', 'customersUpsert')
+  registerOperation('customers:update', 'customersUpdate')
+  registerOperation('customers:delete', 'customersDelete')
+  registerOperation('customers:outstanding', 'customerOutstanding')
+  registerOperation('products:list', 'productsList')
+  registerOperation('products:get', 'productsGet')
+  registerOperation('products:create', 'productsCreate')
+  registerOperation('products:update', 'productsUpdate')
+  registerOperation('products:delete', 'productsDelete')
+  registerOperation('products:restock', 'productsRestock')
+  registerOperation('invoices:create', 'invoicesCreate')
+  registerOperation('invoices:get', 'invoicesGet')
+  registerOperation('invoices:getByNumber', 'invoicesGetByNumber')
+  registerOperation('invoices:search', 'invoicesSearch')
+  registerOperation('invoices:void', 'invoicesVoid')
+  registerOperation('invoices:recordPayment', 'invoicesRecordPayment')
+  registerOperation('reports:kpis', 'reportsKpis')
+  registerOperation('reports:salesByDay', 'reportsSalesByDay')
+  registerOperation('reports:salesByMonth', 'reportsSalesByMonth')
+  registerOperation('reports:topProducts', 'reportsTopProducts')
+  registerOperation('reports:topCustomers', 'reportsTopCustomers')
 
   // ---------- Reports ----------
-  ipcMain.handle('reports:kpis', async (_e, range) => reports.kpis(range ?? {}))
-  ipcMain.handle('reports:salesByDay', async (_e, range) => reports.salesByDay(range ?? {}))
-  ipcMain.handle('reports:salesByMonth', async (_e, range) => reports.salesByMonth(range ?? {}))
-  ipcMain.handle('reports:topProducts', async (_e, range, limit) =>
-    reports.topProducts(range ?? {}, limit)
-  )
-  ipcMain.handle('reports:topCustomers', async (_e, range, limit) =>
-    reports.topCustomers(range ?? {}, limit)
-  )
   ipcMain.handle('reports:exportExcel', async (_e, range, target) => {
     const out = target ?? join(_exportDir, `sales_${(range?.start ?? '').slice(0, 10)}_${(range?.end ?? '').slice(0, 10)}.xlsx`)
     return exportSalesExcel(range ?? {}, out)
@@ -126,27 +119,22 @@ export function registerIpc(): void {
     return renderInvoicePdf(inv, settings, settings.language, dest)
   })
   ipcMain.handle('invoice:print', async (_e, id) => {
-    const inv = await invoices.getById(Number(id))
-    if (!inv) throw new Error(`invoice ${id} not found`)
-    const settings = await getAllSettings()
-    const dest = join(_exportDir, `invoice_${inv.number}.pdf`)
-    await renderInvoicePdf(inv, settings, settings.language, dest)
-    await shell.openPath(dest)
+    await printInvoiceById(Number(id))
   })
 
   // ---------- Backup ----------
-  ipcMain.handle('backup:create', async (_e, label) => {
+  ipcMain.handle('backup:create', async (_e, label) => enqueueMutation(async () => {
     await checkpointWal() // flush WAL so the copy contains the latest data
     return createBackup(_backupDir, label ?? '')
-  })
+  }))
   ipcMain.handle('backup:list', async () => listBackups(_backupDir))
-  ipcMain.handle('backup:restore', async (_e, p) => {
+  ipcMain.handle('backup:restore', async (_e, p) => enqueueMutation(async () => {
     await checkpointWal() // ensure the pre_restore snapshot is complete
     restoreBackup(p, _backupDir)
     closeDatabase()
     await configureDatabase(dbPath())
     await bootstrapSchema()
-  })
+  }))
 
   // ---------- Legacy import ----------
   ipcMain.handle('legacy:hasFiles', async () => {
@@ -157,13 +145,22 @@ export function registerIpc(): void {
       return false
     }
   })
-  ipcMain.handle('legacy:import', async () => {
+  ipcMain.handle('legacy:import', async () => enqueueMutation(async () => {
     const dirs = paths(app.getPath('userData'))
     return importAll({ itemsDir: dirs.legacyItems, billsDir: dirs.legacyBills })
-  })
+  }))
 
   // ---------- App ----------
-  ipcMain.handle('app:version', async () => app.getVersion())
+  const disabledMobileInfo = (): MobileAccessInfo => ({
+    enabled: false,
+    port: 47_831,
+    urls: [],
+    pin: '',
+    sessionCount: 0
+  })
+  ipcMain.handle('mobile:info', async () => lanServer?.getInfo() ?? disabledMobileInfo())
+  ipcMain.handle('mobile:rotatePin', async () => lanServer?.rotatePin() ?? disabledMobileInfo())
+  ipcMain.handle('app:version', async () => packageJson.version)
   ipcMain.handle('app:reload', async () => {
     const { BrowserWindow } = await import('electron')
     BrowserWindow.getAllWindows().forEach((w) => w.webContents.reload())

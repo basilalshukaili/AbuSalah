@@ -612,6 +612,75 @@ export async function renderInvoicePdf(
   }
 }
 
+/**
+ * Print an invoice directly to Windows' default printer without opening a
+ * browser or showing a print dialog. The renderer receives a useful error when
+ * Windows has no printer (or no default printer) configured.
+ */
+export async function printInvoiceSilently(
+  inv: Invoice,
+  settings: Settings
+): Promise<void> {
+  const html = renderInvoiceHtml(inv, settings)
+  const win = new BrowserWindow({
+    show: false,
+    width: 794,
+    height: 1123,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  })
+
+  try {
+    const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html)
+    await win.loadURL(dataUrl)
+    await win.webContents.executeJavaScript(
+      'document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()'
+    )
+
+    const printers = await win.webContents.getPrintersAsync()
+    if (printers.length === 0) {
+      throw new Error(
+        'No printer is available on this PC. Connect a printer and try again. / لا توجد طابعة متاحة على هذا الكمبيوتر.'
+      )
+    }
+
+    const printer = printers.find((candidate) => candidate.isDefault)
+    if (!printer) {
+      throw new Error(
+        'No default printer is configured in Windows. Set a default printer and try again. / لم يتم تعيين طابعة افتراضية في ويندوز.'
+      )
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      win.webContents.print(
+        {
+          silent: true,
+          printBackground: true,
+          deviceName: printer.name,
+          margins: { marginType: 'none' },
+          pageSize: 'A4'
+        },
+        (success, failureReason) => {
+          if (success) {
+            resolve()
+          } else {
+            reject(
+              new Error(
+                `Printing failed: ${failureReason || 'the default printer did not accept the job'}. / فشلت الطباعة.`
+              )
+            )
+          }
+        }
+      )
+    })
+  } finally {
+    if (!win.isDestroyed()) win.destroy()
+  }
+}
+
 // Exposed for tests / preview
 export const _renderInvoiceHtml = (inv: Invoice, settings: Settings) =>
   renderInvoiceHtml(inv, settings)

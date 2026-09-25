@@ -80,6 +80,14 @@
     font-size: 16px;
   }
 
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    width: 100%;
+    overflow-x: hidden;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Cairo', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;

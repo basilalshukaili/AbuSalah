@@ -34,8 +34,8 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4',
-        'border bg-background p-6 shadow-lg rounded-2xl',
+        'fixed left-1/2 top-[max(0.5rem,env(safe-area-inset-top))] z-50 grid w-[calc(100%-1rem)] max-w-lg -translate-x-1/2 translate-y-0 gap-4',
+        'max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-2xl border bg-background p-4 shadow-lg sm:top-1/2 sm:w-full sm:-translate-y-1/2 sm:p-6',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -45,7 +45,7 @@ const DialogContent = React.forwardRef<
     >
       {children}
       <DialogPrimitive.Close
-        className="absolute end-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none"
+        className="absolute end-2 top-2 flex h-11 w-11 items-center justify-center rounded-lg opacity-70 ring-offset-background transition-opacity hover:bg-accent hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:end-3 sm:top-3"
       >
         <X className="h-5 w-5" />
         <span className="sr-only">Close</span>
@@ -56,12 +56,15 @@ const DialogContent = React.forwardRef<
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn('flex flex-col space-y-1.5 text-start', className)} {...props} />
+  <div className={cn('flex flex-col space-y-1.5 pe-10 text-start', className)} {...props} />
 )
 
 const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)}
+    className={cn(
+      'flex flex-col-reverse gap-2 [&>button]:w-full sm:flex-row sm:justify-end sm:[&>button]:w-auto',
+      className
+    )}
     {...props}
   />
 )

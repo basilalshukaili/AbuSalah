@@ -89,13 +89,13 @@ export function Customers() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-end">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t('customers.title')}</h1>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{t('customers.title')}</h1>
           <p className="text-muted-foreground mt-1">{t('customers.subtitle')}</p>
         </div>
-        <Button size="lg" onClick={() => setEditing({ ...empty })}>
+        <Button className="w-full sm:w-auto" size="lg" onClick={() => setEditing({ ...empty })}>
           <Plus className="h-4 w-4" />
           {t('customers.addCustomer')}
         </Button>

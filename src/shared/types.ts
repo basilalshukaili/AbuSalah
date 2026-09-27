@@ -218,6 +218,12 @@ export interface IpcApi {
 
   invoiceRenderPdf: (id: number, target?: string) => Promise<string>
   invoicePrint: (id: number) => Promise<void>
+  /**
+   * Produce the invoice PDF and hand it to the operator to send themselves —
+   * reveals it in Explorer on desktop, opens/downloads it on the phone web UI.
+   * Never sends anything automatically, and never touches the print flow.
+   */
+  invoiceSharePdf: (id: number) => Promise<string>
 
   backupCreate: (label?: string) => Promise<string>
   backupList: () => Promise<{ path: string; size: number; mtime: string }[]>

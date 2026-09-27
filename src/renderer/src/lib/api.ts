@@ -451,6 +451,11 @@ function createBrowserApi(): IpcApi {
     invoiceRenderPdf: (id) =>
       downloadFile(`/api/invoices/${id}/pdf`, `invoice_${id}.pdf`, true),
     invoicePrint: (id) => authenticatedPost(`/api/invoices/${id}/print`),
+    // "Share" on the phone means open the PDF inline so the phone's own share
+    // sheet/downloads can take over — the existing PDF endpoint already does
+    // exactly that, so this reuses it rather than adding a server route.
+    invoiceSharePdf: (id) =>
+      downloadFile(`/api/invoices/${id}/pdf`, `invoice_${id}.pdf`, true),
 
     // Filesystem administration is deliberately unavailable through the phone UI.
     backupCreate: () => desktopOnly<string>(),

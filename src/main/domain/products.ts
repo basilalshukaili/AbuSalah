@@ -1,4 +1,4 @@
-import { and, asc, eq, like, lte, or } from 'drizzle-orm'
+import { and, asc, eq, like, lte, or, sql } from 'drizzle-orm'
 
 import type { Product, ProductInput } from '@shared/types'
 import { safeNumber } from '@shared/formatting'
@@ -136,10 +136,17 @@ export async function restock(id: number, qty: number, reason: string): Promise<
   const existing = await db().select().from(products).where(eq(products.id, id)).get()
   if (!existing) throw new Error(`product ${id} not found`)
   const addQty = safeNumber(qty, 0)
-  const newQty = safeNumber(existing.qty) + addQty
+  // Relative update (qty = qty + ?) rather than writing back `existing.qty +
+  // addQty` as an absolute value: two restocks racing on the same stale read
+  // would otherwise lose one of them while still logging both movements — the
+  // exact lost-update shape invoices.create() already documents and guards
+  // against for the sale-side stock decrement. In this app every mutation is
+  // also serialized through the shared mutation queue
+  // (src/main/api/mutation-queue.ts), so this line is defense in depth, not
+  // the only thing preventing it.
   await db()
     .update(products)
-    .set({ qty: newQty, updatedAt: new Date().toISOString() })
+    .set({ qty: sql`${products.qty} + ${addQty}`, updatedAt: new Date().toISOString() })
     .where(eq(products.id, id))
     .run()
   await db()

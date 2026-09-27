@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircleDollarSign, FileText, Loader2, Printer, Search, Trash2 } from 'lucide-react'
+import { CircleDollarSign, FileText, Loader2, Printer, Share2, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Card, CardContent } from '@/components/ui/card'
@@ -36,9 +36,11 @@ export function SearchInvoices() {
   const [opened, setOpened] = useState<Invoice | null>(null)
   const [confirmVoid, setConfirmVoid] = useState<Invoice | null>(null)
   const [printingId, setPrintingId] = useState<number | null>(null)
+  const [sharingId, setSharingId] = useState<number | null>(null)
   const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null)
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentBusy, setPaymentBusy] = useState(false)
+  const [voidBusy, setVoidBusy] = useState(false)
 
   const { data, isFetching, refetch } = useQuery({
     queryKey: ['invoices', 'search', term, from, to],
@@ -64,6 +66,23 @@ export function SearchInvoices() {
       })
     } finally {
       setPrintingId(null)
+    }
+  }
+
+  // Separate control from printInvoice above — never calls invoicePrint and
+  // never touches the printer. Its own busy flag so a share in progress can
+  // never be confused with, or block, a print in progress (or vice versa).
+  async function sharePdf(inv: Invoice) {
+    if (sharingId !== null) return
+    setSharingId(inv.id)
+    const toastId = toast.loading(t('msg.sharingPdf'))
+    try {
+      await window.api.invoiceSharePdf(inv.id)
+      toast.success(t('msg.pdfShared'), { id: toastId })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), { id: toastId })
+    } finally {
+      setSharingId(null)
     }
   }
 
@@ -109,6 +128,8 @@ export function SearchInvoices() {
   }
 
   async function voidInvoice(inv: Invoice) {
+    if (voidBusy) return
+    setVoidBusy(true)
     try {
       await window.api.invoicesVoid(inv.id, 'voided from search')
       toast.success(t('msg.invoiceVoided'))
@@ -117,6 +138,8 @@ export function SearchInvoices() {
       setConfirmVoid(null)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setVoidBusy(false)
     }
   }
 
@@ -233,6 +256,20 @@ export function SearchInvoices() {
                             <Printer className="h-4 w-4" />
                           )}
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => sharePdf(inv)}
+                          aria-label={t('invoice.sharePdf')}
+                          title={t('invoice.sharePdf')}
+                          disabled={sharingId !== null}
+                        >
+                          {sharingId === inv.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Share2 className="h-4 w-4" />
+                          )}
+                        </Button>
                         {inv.balance > 0 &&
                           (inv.status === 'unpaid' || inv.status === 'partial') && (
                             <Button
@@ -338,6 +375,19 @@ export function SearchInvoices() {
                       {t('invoice.recordPayment')}
                     </Button>
                   )}
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => sharePdf(opened)}
+                  disabled={sharingId !== null}
+                >
+                  {sharingId === opened.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Share2 className="h-4 w-4" />
+                  )}
+                  {t('invoice.sharePdf')}
+                </Button>
                 <Button
                   className="w-full sm:w-auto"
                   onClick={() => printInvoice(opened)}
@@ -460,10 +510,15 @@ export function SearchInvoices() {
             <DialogDescription>{t('invoice.voidConfirm')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmVoid(null)}>
+            <Button variant="outline" onClick={() => setConfirmVoid(null)} disabled={voidBusy}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={() => confirmVoid && voidInvoice(confirmVoid)}>
+            <Button
+              variant="destructive"
+              onClick={() => confirmVoid && voidInvoice(confirmVoid)}
+              disabled={voidBusy}
+            >
+              {voidBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {t('invoice.void')}
             </Button>
           </DialogFooter>

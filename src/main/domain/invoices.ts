@@ -332,34 +332,45 @@ export async function voidInvoice(id: number, reason: string): Promise<Invoice> 
   const c = rawClient()
   const tx = await c.transaction('write')
   try {
-    await tx.execute({
+    // The WHERE clause is a compare-and-swap, not just a status write: it only
+    // flips a row that is not ALREADY void. `rowsAffected === 0` means some
+    // other call voided it first — the early return above is a fast path, not
+    // the real guard, because it reads outside this transaction and so cannot
+    // see a concurrent writer. Skipping the stock restoration below when the
+    // swap didn't happen is what stops stock being restored twice for one
+    // void. Every mutation is also serialized through the shared mutation
+    // queue (src/main/api/mutation-queue.ts) in this app, so this is defense
+    // in depth, not the only thing preventing a double restore.
+    const updateResult = await tx.execute({
       sql: `UPDATE invoices
         SET status='void', voided_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),
             voided_reason=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
-        WHERE id=?`,
+        WHERE id=? AND status != 'void'`,
       args: [reason || '', id]
     })
-    for (const it of items) {
-      if (it.productId === null) continue
-      const p = productById.get(it.productId)
-      if (!p) continue
-      await tx.execute({
-        sql: `UPDATE products SET qty=qty+?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
-        args: [Number(it.qty), it.productId]
-      })
-      await tx.execute({
-        sql: `INSERT INTO inventory_movements
-          (product_id, invoice_id, kind, qty_delta, unit_cost, reason)
-          VALUES (?,?,?,?,?,?)`,
-        args: [
-          it.productId,
-          row.id,
-          'void_reversal',
-          Number(it.qty),
-          Number(p.cost),
-          `void of invoice #${row.number}: ${reason}`
-        ]
-      })
+    if (Number(updateResult.rowsAffected) > 0) {
+      for (const it of items) {
+        if (it.productId === null) continue
+        const p = productById.get(it.productId)
+        if (!p) continue
+        await tx.execute({
+          sql: `UPDATE products SET qty=qty+?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`,
+          args: [Number(it.qty), it.productId]
+        })
+        await tx.execute({
+          sql: `INSERT INTO inventory_movements
+            (product_id, invoice_id, kind, qty_delta, unit_cost, reason)
+            VALUES (?,?,?,?,?,?)`,
+          args: [
+            it.productId,
+            row.id,
+            'void_reversal',
+            Number(it.qty),
+            Number(p.cost),
+            `void of invoice #${row.number}: ${reason}`
+          ]
+        })
+      }
     }
     await tx.commit()
   } catch (err) {

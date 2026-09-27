@@ -522,8 +522,8 @@ function renderInvoiceHtml(inv: Invoice, settings: Settings): string {
         <span class="t-val">- ${m(inv.discount)}</span>
       </div>` : ''}
       <div class="t-row">
-        <span class="t-label-en">Tax ${taxPct}%</span>
-        <span class="t-label-ar">ضريبة ${taxPct}%</span>
+        <span class="t-label-en">Tax ${taxPct}%${Number(inv.taxRate ?? 0) === 0 ? ' (exempt)' : ''}</span>
+        <span class="t-label-ar">ضريبة ${taxPct}%${Number(inv.taxRate ?? 0) === 0 ? ' (معفاة)' : ''}</span>
         <span class="t-val">${m(inv.taxAmount)}</span>
       </div>
       <div class="t-row grand">

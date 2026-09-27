@@ -46,6 +46,7 @@ export function NewInvoice() {
   const [extra, setExtra] = useState('0')
   const [discount, setDiscount] = useState('0')
   const [advance, setAdvance] = useState('0')
+  const [noTax, setNoTax] = useState(false)
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<Line[]>([])
   const [busy, setBusy] = useState(false)
@@ -96,7 +97,10 @@ export function NewInvoice() {
   }, [allProducts, productTerm])
 
   const totals = useMemo(() => {
-    const taxRate = settings?.taxRate ?? 0.05
+    // Tax-exempt is a PER-INVOICE choice (see `noTax` below) — it never reads
+    // from or writes to Settings, so one exempt sale can never leak into the
+    // tax rate the next customer is charged.
+    const taxRate = noTax ? 0 : settings?.taxRate ?? 0.05
     const subtotal = roundMoney(lines.reduce((sum, l) => sum + l.lineTotal, 0))
     const d = Math.min(subtotal, Math.max(0, Number(discount) || 0))
     const taxable = Math.max(0, subtotal - d)
@@ -105,7 +109,7 @@ export function NewInvoice() {
     const adv = Math.max(0, Number(advance) || 0)
     const balance = roundMoney(total - adv)
     return { subtotal, discount: d, tax, total, balance, taxRate }
-  }, [lines, discount, advance, settings])
+  }, [lines, discount, advance, settings, noTax])
 
   function pickProduct(p: Product) {
     setSelectedProduct(p)
@@ -207,6 +211,7 @@ export function NewInvoice() {
     setExtra('0')
     setDiscount('0')
     setAdvance('0')
+    setNoTax(false)
     setNotes('')
     setLines([])
   }
@@ -234,6 +239,10 @@ export function NewInvoice() {
         })),
         discount: totals.discount,
         advance: Number(advance) || 0,
+        // Explicit 0 when the operator ticked "sell without tax"; omitted
+        // otherwise so the IPC layer injects the current Settings tax rate.
+        // Settings itself is never read or written here.
+        taxRate: noTax ? 0 : undefined,
         paymentMethod: 'cash',
         notes: notes.trim(),
         documentType: 'invoice'
@@ -639,6 +648,19 @@ export function NewInvoice() {
                 className="text-base mt-1"
               />
             </div>
+            <div className="md:col-span-2 flex items-start gap-2 rounded-lg border bg-muted/30 p-3">
+              <input
+                id="no-tax"
+                type="checkbox"
+                checked={noTax}
+                onChange={(e) => setNoTax(e.target.checked)}
+                className="mt-1 h-5 w-5 shrink-0"
+              />
+              <label htmlFor="no-tax" className="cursor-pointer select-none">
+                <span className="text-base font-semibold">{t('invoice.noTax')}</span>
+                <p className="text-xs text-muted-foreground mt-0.5">{t('invoice.noTaxHint')}</p>
+              </label>
+            </div>
             <div className="md:col-span-2">
               <Label htmlFor="notes" className="text-base font-semibold">
                 {t('invoice.notes')}
@@ -669,6 +691,7 @@ export function NewInvoice() {
             <div className="flex justify-between text-base">
               <span className="text-muted-foreground">
                 {t('invoice.tax')} ({(totals.taxRate * 100).toFixed(1)}%)
+                {noTax && <span className="ms-1 text-amber-600">{t('invoice.taxExemptLabel')}</span>}
               </span>
               <span className="font-mono">{formatMoney(totals.tax)}</span>
             </div>

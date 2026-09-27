@@ -36,6 +36,7 @@ const api: IpcApi = {
 
   invoiceRenderPdf: (id, target) => ipcRenderer.invoke('invoice:renderPdf', id, target),
   invoicePrint: (id) => ipcRenderer.invoke('invoice:print', id),
+  invoiceSharePdf: (id) => ipcRenderer.invoke('invoice:sharePdf', id),
 
   backupCreate: (label) => ipcRenderer.invoke('backup:create', label ?? ''),
   backupList: () => ipcRenderer.invoke('backup:list'),

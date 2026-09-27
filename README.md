@@ -121,6 +121,40 @@ error instead of opening a browser.
 Do not expose port 47831 with router port-forwarding, and do not enable access on
 hotel, airport, café, or other untrusted Wi-Fi.
 
+## Remote access from a different network (e.g. from home)
+
+Phone access above only works on the *same* Wi-Fi as the PC. Reaching the app from a
+different network (checking on it from home while the PC stays on at the shop/factory)
+uses a separate mechanism, in `remote-access/`:
+
+- The PC dials **out** to our VPS through a restricted SSH reverse tunnel — **no inbound
+  port is ever opened** on the PC or its network, and nothing needs to change on the
+  router.
+- The tunnel only forwards the same port the phone feature already uses (47831), so
+  everything phone access enforces — same-network-shaped auth, the 6-digit pairing PIN,
+  session tokens — still applies to a request arriving this way.
+- On our VPS, Caddy requires a **separate password (HTTP Basic Auth)** in front of
+  `abusalah.techmate.om`, before it ever reaches the tunnel. This app is a
+  single-workstation desktop tool and was never built to sit behind a public hostname;
+  a hostname alone is not authentication, so nothing is reachable there without both
+  this password and the pairing PIN.
+- Printing is unaffected either way: it always happens on the PC's own local printer,
+  never anywhere else.
+
+One-time setup on the PC (needs the private key file for this, handed over separately —
+**never** put it inside this cloned folder, since `update.bat` can reset this folder to
+match GitHub):
+
+1. Copy the private key file to `%APPDATA%\AbuSalahTunnel\abusalah_tunnel_key`.
+2. Run `remote-access\install-tunnel-task.ps1` once (double-click, or right-click →
+   "Run with PowerShell"; no admin rights needed). It locks the key file down to your
+   Windows account and registers a background task that starts the tunnel at log-on and
+   restarts it automatically.
+3. Keep the PC on, awake, and logged in with the Abu Salah app open, same as for phone
+   access. Check `%APPDATA%\AbuSalahTunnel\tunnel.log` if it doesn't seem to be working.
+
+See `remote-access/abusalah-tunnel.ps1` for exactly what the tunnel does and does not do.
+
 ### Optional: standalone installer
 
 For a no‑Node install, `npm run build:win` packages an NSIS `.exe` into `release/`.

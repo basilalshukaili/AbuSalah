@@ -25,6 +25,17 @@ export async function configureDatabase(path: string): Promise<void> {
   await _client.execute('PRAGMA journal_mode = WAL')
   await _client.execute('PRAGMA foreign_keys = ON')
   await _client.execute('PRAGMA synchronous = NORMAL')
+  // The shared mutation queue (src/main/api/mutation-queue.ts) is what
+  // actually keeps two writes from ever overlapping in this app; this PRAGMA
+  // is a second, independent layer for lock contention SQLite itself sees
+  // (e.g. a checkpoint or the backup file-copy landing mid-write), so a brief
+  // wait replaces a hard user-facing error. It does NOT cover every kind of
+  // contention: this connection's local libsql driver refuses a second
+  // in-flight `.transaction()` outright (immediate SQLITE_BUSY, confirmed by
+  // direct experiment while writing src/test/regression-fixes.test.ts) rather
+  // than queuing it, so multi-statement writers still depend on the mutation
+  // queue, not on this PRAGMA, to never overlap.
+  await _client.execute('PRAGMA busy_timeout = 5000')
 }
 
 export function db(): LibSQLDatabase<typeof schema> {

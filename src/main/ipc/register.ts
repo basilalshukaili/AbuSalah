@@ -4,7 +4,7 @@
  * which is in turn typed by `IpcApi` in `@shared/types`.
  */
 
-import { app, dialog, ipcMain } from 'electron'
+import { app, dialog, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 
 import * as invoices from '../domain/invoices'
@@ -120,6 +120,19 @@ export function registerIpc(lanServer: LanServerHandle | null): void {
   })
   ipcMain.handle('invoice:print', async (_e, id) => {
     await printInvoiceById(Number(id))
+  })
+  // Separate from invoice:print by design: never touches the printer or the
+  // silent-print path above. Writes a PDF to the exports folder (the same
+  // stable name invoice:renderPdf uses) and reveals it in Explorer so the
+  // operator can attach it to WhatsApp/email themselves. Never sends anything.
+  ipcMain.handle('invoice:sharePdf', async (_e, id) => {
+    const inv = await invoices.getById(Number(id))
+    if (!inv) throw new Error(`invoice ${id} not found`)
+    const settings = await getAllSettings()
+    const dest = join(_exportDir, `invoice_${inv.number}.pdf`)
+    await renderInvoicePdf(inv, settings, settings.language, dest)
+    shell.showItemInFolder(dest)
+    return dest
   })
 
   // ---------- Backup ----------

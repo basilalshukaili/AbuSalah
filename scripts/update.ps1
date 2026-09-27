@@ -109,6 +109,16 @@ try {
     $currentStash = Get-StashHash
     $createdStash = $currentStash -and ($currentStash -ne $previousStash)
 
+    # Recorded so the operator is TOLD whether anything actually arrived. Reported
+    # 2026-09-27: "it opens the application but still not working." The most likely
+    # reading is that the update ran, found nothing to fetch (the work was still
+    # only on the developer's machine), rebuilt the same code and opened it - and
+    # every line on screen said success. "Already up to date." does print, but it
+    # is one quiet line in the middle of ten, so the run is indistinguishable from
+    # one that changed something. An update that reports nothing about WHAT it
+    # changed is how a no-op reads as a failure, and a real update reads as a no-op.
+    $headBefore = (& git rev-parse HEAD 2>$null | Select-Object -First 1)
+
     try {
         Write-Host 'Downloading the latest version...'
         Invoke-Checked -Command 'git' -Arguments @('fetch', 'origin') -FailureMessage 'Could not download the latest version'
@@ -128,6 +138,25 @@ try {
         Write-Host 'Restoring local repairs and other local changes...'
         Restore-Stash -Hash $currentStash
     }
+
+    # Say plainly what arrived, before the noisy rebuild lines scroll past.
+    $headAfter = (& git rev-parse HEAD 2>$null | Select-Object -First 1)
+    $newCommits = 0
+    if ($headBefore -and $headAfter -and ($headBefore -ne $headAfter)) {
+        $countText = (& git rev-list --count "$headBefore..$headAfter" 2>$null | Select-Object -First 1)
+        if ($countText) { [void][int]::TryParse($countText.Trim(), [ref] $newCommits) }
+    }
+    Write-Host ''
+    if ($newCommits -gt 0) {
+        Write-Host ("NEW VERSION DOWNLOADED - {0} change(s). Rebuilding now." -f $newCommits) -ForegroundColor Green
+        Write-Host ("نسخة جديدة - {0} تغيير. جاري التحديث." -f $newCommits) -ForegroundColor Green
+    }
+    else {
+        Write-Host 'ALREADY THE LATEST VERSION - nothing new to download.' -ForegroundColor Yellow
+        Write-Host 'If you were expecting a change, it has not been published yet - tell us.' -ForegroundColor Yellow
+        Write-Host 'النسخة محدثة بالفعل - لا يوجد جديد.' -ForegroundColor Yellow
+    }
+    Write-Host ''
 
     # Stop only Electron processes launched from this exact project so files can
     # be refreshed without disturbing unrelated Electron applications.
@@ -160,10 +189,20 @@ try {
         throw 'The production build did not create out\main\index.js.'
     }
 
+    # DELIBERATELY DOES NOT LAUNCH THE APP. It used to end with Start-Process on
+    # node_modules\electron\dist\electron.exe, which opened a second, dev-style
+    # copy alongside however the operator normally starts the program - so the
+    # window that appeared was not the one they use, and an update that had
+    # genuinely applied still looked like it had not. Asked for directly on
+    # 2026-09-27: "no need for it to auto open the app. It just updates."
+    #
+    # The Electron processes for this project were stopped further up so the
+    # files could be replaced, so the operator does re-open the program - by
+    # whatever shortcut they always use, which is the point.
     Write-Host ''
-    Write-Host 'Update complete. Launching Abu Salah...' -ForegroundColor Green
-    $quotedMainEntry = '"' + $mainEntry + '"'
-    Start-Process -FilePath $electronExe -ArgumentList $quotedMainEntry -WorkingDirectory $projectRoot
+    Write-Host 'Update complete.' -ForegroundColor Green
+    Write-Host 'Now open Abu Salah the way you normally do.' -ForegroundColor Green
+    Write-Host 'تم التحديث. افتح البرنامج كما تفتحه عادة.' -ForegroundColor Green
     exit 0
 }
 catch {

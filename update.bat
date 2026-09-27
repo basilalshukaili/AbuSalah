@@ -2,7 +2,9 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 REM ============================================================
-REM   Abu Salah - Safe update, rebuild, and launch
+REM   Abu Salah - Safe update and rebuild. It does NOT open the program.
+REM   (Asked for 2026-09-27: "no need for it to auto open the app. It just
+REM   updates." Open Abu Salah afterwards the way you normally do.)
 REM ============================================================
 
 cd /d "%~dp0"

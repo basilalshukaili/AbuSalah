@@ -53,6 +53,15 @@ export function Products() {
   const [restocking, setRestocking] = useState<Product | null>(null)
   const [restockQty, setRestockQty] = useState('0')
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null)
+  // Each dialog gets its own busy flag so a double-click on Save/Restock/
+  // Disable can't fire a second request while the first is still in flight.
+  // The domain layer (products.restock uses a relative SQL update, and every
+  // mutation is serialized through the shared mutation queue) is what makes
+  // a repeat safe either way; this is the "nice touch on top" for the common
+  // case of a fast double click, not the mechanism.
+  const [saveBusy, setSaveBusy] = useState(false)
+  const [restockBusy, setRestockBusy] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const { data: products, refetch } = useQuery({
     queryKey: ['products', 'list', term, lowOnly],
@@ -60,7 +69,8 @@ export function Products() {
   })
 
   async function save() {
-    if (!editing) return
+    if (!editing || saveBusy) return
+    setSaveBusy(true)
     try {
       const { id, ...input } = editing
       if (id !== undefined) {
@@ -74,11 +84,14 @@ export function Products() {
       qc.invalidateQueries({ queryKey: ['products'] })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaveBusy(false)
     }
   }
 
   async function restockNow() {
-    if (!restocking) return
+    if (!restocking || restockBusy) return
+    setRestockBusy(true)
     try {
       await window.api.productsRestock(restocking.id, Number(restockQty), 'manual restock')
       setRestocking(null)
@@ -87,11 +100,14 @@ export function Products() {
       toast.success(t('common.success'))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRestockBusy(false)
     }
   }
 
   async function disableProduct() {
-    if (!confirmDelete) return
+    if (!confirmDelete || deleteBusy) return
+    setDeleteBusy(true)
     try {
       await window.api.productsDelete(confirmDelete.id)
       setConfirmDelete(null)
@@ -99,6 +115,8 @@ export function Products() {
       toast.success(t('msg.productDisabled'))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -298,10 +316,10 @@ export function Products() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditing(null)}>
+            <Button variant="outline" onClick={() => setEditing(null)} disabled={saveBusy}>
               {t('common.cancel')}
             </Button>
-            <Button variant="success" onClick={save}>
+            <Button variant="success" onClick={save} disabled={saveBusy}>
               {t('common.save')}
             </Button>
           </DialogFooter>
@@ -326,10 +344,10 @@ export function Products() {
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRestocking(null)}>
+            <Button variant="outline" onClick={() => setRestocking(null)} disabled={restockBusy}>
               {t('common.cancel')}
             </Button>
-            <Button variant="success" onClick={restockNow}>
+            <Button variant="success" onClick={restockNow} disabled={restockBusy}>
               {t('products.restock')}
             </Button>
           </DialogFooter>
@@ -343,10 +361,10 @@ export function Products() {
             <DialogDescription>{t('products.deleteConfirm')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDelete(null)}>
+            <Button variant="outline" onClick={() => setConfirmDelete(null)} disabled={deleteBusy}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={disableProduct}>
+            <Button variant="destructive" onClick={disableProduct} disabled={deleteBusy}>
               {t('common.delete')}
             </Button>
           </DialogFooter>

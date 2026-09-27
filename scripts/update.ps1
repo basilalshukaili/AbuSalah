@@ -149,12 +149,10 @@ try {
     Write-Host ''
     if ($newCommits -gt 0) {
         Write-Host ("NEW VERSION DOWNLOADED - {0} change(s). Rebuilding now." -f $newCommits) -ForegroundColor Green
-        Write-Host ("نسخة جديدة - {0} تغيير. جاري التحديث." -f $newCommits) -ForegroundColor Green
     }
     else {
         Write-Host 'ALREADY THE LATEST VERSION - nothing new to download.' -ForegroundColor Yellow
         Write-Host 'If you were expecting a change, it has not been published yet - tell us.' -ForegroundColor Yellow
-        Write-Host 'النسخة محدثة بالفعل - لا يوجد جديد.' -ForegroundColor Yellow
     }
     Write-Host ''
 
@@ -202,7 +200,6 @@ try {
     Write-Host ''
     Write-Host 'Update complete.' -ForegroundColor Green
     Write-Host 'Now open Abu Salah the way you normally do.' -ForegroundColor Green
-    Write-Host 'تم التحديث. افتح البرنامج كما تفتحه عادة.' -ForegroundColor Green
     exit 0
 }
 catch {
